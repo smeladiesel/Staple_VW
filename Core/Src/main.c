@@ -620,6 +620,15 @@ int main(void)
     } else if (cur_screen == SCREEN_CALIBRATION) {
 
       if (calib_is_active()) {
+        if (joy_up && !joy_down && !motor_is_limit_top()) {
+          uint16_t spd = manual_up_speed_from_pot(pot_raw, force);
+          motor_move_up(spd);
+        } else if (joy_down && !joy_up && !motor_is_limit_bot()) {
+          motor_move_down(manual_down_speed_from_pot(pot_raw));
+        } else if (motor_is_running()) {
+          motor_stop();
+        }
+
         calib_adjust(enc_delta);
         if (input_enc_sw_pressed()) calib_confirm();
         calib_update();
