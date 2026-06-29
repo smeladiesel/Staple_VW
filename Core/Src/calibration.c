@@ -4,6 +4,7 @@
 #include "config.h"
 #include "torque_angle.h"
 #include "main.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -12,6 +13,7 @@
 
 #define FLASH_EEPROM_SECTOR  FLASH_SECTOR_7
 #define FLASH_EEPROM_ADDR    0x08060000UL
+#define FLASH_MAGIC_WITH_ANGLE 0xAD
 
 #pragma pack(1)
 typedef struct {
@@ -27,11 +29,15 @@ bool flash_load(float *scale, int32_t *offset, float *target, float *angle_targe
 {
     const FlashData_t *p = (const FlashData_t *)FLASH_EEPROM_ADDR;
     if (p->magic != 0xAB && p->magic != 0xAC && p->magic != 0xAD) return false;
+    if (!isfinite(p->scale) || p->scale <= 0.0f) return false;
+    if (p->offset < (-8388608) || p->offset > 8388607) return false;
+    if (!isfinite(p->target_force)) return false;
     if (scale)  *scale  = p->scale;
     if (offset) *offset = p->offset;
     if (target) *target = p->target_force;
     if (angle_target) {
-        *angle_target = (p->magic == 0xAD) ? p->angle_target : ANGLE_DEFAULT_DEG;
+        float a = (p->magic == FLASH_MAGIC_WITH_ANGLE) ? p->angle_target : ANGLE_DEFAULT_DEG;
+        *angle_target = isfinite(a) ? a : ANGLE_DEFAULT_DEG;
     }
     return true;
 }
@@ -56,7 +62,7 @@ bool flash_save(float scale, int32_t offset, float target, float angle_target)
         .scale        = scale,
         .offset       = offset,
         .target_force = target,
-        .magic        = EEPROM_MAGIC_VALUE,
+        .magic        = FLASH_MAGIC_WITH_ANGLE,
         .angle_target = angle_target
     };
 

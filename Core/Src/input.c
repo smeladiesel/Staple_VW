@@ -17,6 +17,8 @@ static uint8_t       s_debounce_subtick = 0;
 // Енкодер
 static volatile int8_t s_enc_delta  = 0;   // накопичені кроки
 static volatile bool   s_stop_flag  = false;
+static GPIO_PinState   s_stop_normal_level = GPIO_PIN_SET;
+static volatile GPIO_PinState s_stop_last_level = GPIO_PIN_SET;
 static volatile bool   s_enc_sw_pressed_flag  = false;
 static volatile bool   s_enc_sw_released_flag = false;
 
@@ -44,6 +46,8 @@ void input_init(void)
     s_enc_sw  = (DebounceBtn_t){0};
     s_enc_delta = 0;
     s_stop_flag = false;
+    s_stop_normal_level = HAL_GPIO_ReadPin(STOP_BTN_GPIO_Port, STOP_BTN_Pin);
+    s_stop_last_level = s_stop_normal_level;
     s_enc_sw_pressed_flag = false;
     s_enc_sw_released_flag = false;
     s_debounce_subtick = 0;
@@ -156,11 +160,24 @@ bool input_stop_pressed(void)
 
 void input_stop_clear(void)
 {
+    __disable_irq();
     s_stop_flag = false;
+    __enable_irq();
 }
 
-// Встановити прапор СТОП (може викликатися з ISR через motor_emergency_stop)
-void input_stop_set(void)
+bool input_stop_set(void)
 {
+    GPIO_PinState level = HAL_GPIO_ReadPin(STOP_BTN_GPIO_Port, STOP_BTN_Pin);
+    s_stop_last_level = level;
     s_stop_flag = true;
+    return (level != s_stop_normal_level);
+}
+
+bool input_stop_is_active(void)
+{
+    GPIO_PinState level;
+    __disable_irq();
+    level = s_stop_last_level;
+    __enable_irq();
+    return (level != s_stop_normal_level);
 }

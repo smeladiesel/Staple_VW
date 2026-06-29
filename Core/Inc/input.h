@@ -18,6 +18,7 @@ int8_t input_enc_get_delta(void);    // кроки енкодера з оста�
 
 bool   input_stop_pressed(void);     // прапор аварійної зупинки
 void   input_stop_clear(void);       // скинути прапор після обробки
-void   input_stop_set(void);         // встановити прапор (з ISR)
+bool   input_stop_set(void);         // встановити прапор (з ISR), повертає true якщо STOP активний
+bool   input_stop_is_active(void);
 
 #endif /* __INPUT_H */

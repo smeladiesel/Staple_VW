@@ -75,6 +75,7 @@ static uint16_t  s_pot_raw_filtered = 2048U;
 static uint32_t  s_zero_btn_tick = 0;
 static bool      s_zero_btn_last = false;
 static bool      s_ignore_next_enc_release = false;
+static bool      s_stop_error_active = false;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -437,15 +438,17 @@ int main(void)
     // --- Кнопка СТОП ---
     if (input_stop_pressed()) {
       input_stop_clear();
-      auto_reset();
-      if (cur_screen == SCREEN_ERROR) {
+      if (input_stop_is_active()) {
+        auto_reset();
+        s_fine_used = false;
+        s_stop_error_active = true;
+        display_show_error("STOP");
+        cur_screen = SCREEN_ERROR;
+      } else if (s_stop_error_active) {
+        s_stop_error_active = false;
         motor_clear_error();
         display_set_screen(SCREEN_MAIN);
         cur_screen = SCREEN_MAIN;
-      } else {
-        s_fine_used = false;  // скидаємо fine mode при аварійній зупинці
-        display_show_error("STOP: press again");
-        cur_screen = SCREEN_ERROR;
       }
     }
 
@@ -696,8 +699,9 @@ void SystemClock_Config(void)
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
     if (GPIO_Pin == STOP_BTN_Pin) {
-        motor_emergency_stop();
-        input_stop_set();
+        if (input_stop_set()) {
+            motor_emergency_stop();
+        }
     }
     if (GPIO_Pin == ENC_CLK_Pin) {
         input_enc_isr();

@@ -37,6 +37,14 @@ BUILD_DIR = build
 # C sources
 C_SOURCES =  \
 Core/Src/main.c \
+Core/Src/motor.c \
+Core/Src/loadcell.c \
+Core/Src/input.c \
+Core/Src/display.c \
+Core/Src/calibration.c \
+Core/Src/preset.c \
+Core/Src/speedpot.c \
+Core/Src/torque_angle.c \
 Core/Src/gpio.c \
 Core/Src/i2c.c \
 Core/Src/tim.c \
