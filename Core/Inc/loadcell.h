@@ -18,5 +18,6 @@ float   loadcell_get_scale(void);
 int32_t loadcell_get_offset(void);
 void    loadcell_set_offset(int32_t offset);
 int32_t loadcell_read_raw(void);      // усереднене сире значення для калібровки
+bool    loadcell_capture_raw(int32_t *out_raw, uint16_t samples, uint32_t timeout_ms);
 
 #endif /* __LOADCELL_H */

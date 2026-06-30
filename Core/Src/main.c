@@ -174,6 +174,19 @@ static bool auto_is_visible(void)
          s_auto_state == AUTO_STATE_ERROR;
 }
 
+static void reset_to_main_state(void)
+{
+  motor_stop();
+  motor_clear_error();
+  s_fine_used = false;
+  s_ignore_next_enc_release = false;
+  s_stop_error_active = false;
+  s_auto_state = AUTO_STATE_IDLE;
+  s_auto_deadline = 0;
+  s_auto_cmd_speed = 0;
+  display_set_screen(SCREEN_MAIN);
+}
+
 static void auto_reset(void)
 {
   s_auto_state = AUTO_STATE_IDLE;
@@ -439,24 +452,24 @@ int main(void)
     if (input_stop_pressed()) {
       input_stop_clear();
       if (input_stop_is_active()) {
-        auto_reset();
         s_fine_used = false;
         s_stop_error_active = true;
         display_show_error("STOP");
         cur_screen = SCREEN_ERROR;
-      } else if (s_stop_error_active) {
-        s_stop_error_active = false;
-        motor_clear_error();
-        display_set_screen(SCREEN_MAIN);
+      } else {
+        reset_to_main_state();
         cur_screen = SCREEN_MAIN;
       }
     }
 
-    // --- HX711 timeout → аварія ---
-    if (loadcell_has_error() && motor_is_running()) {
-      motor_stop();
-      auto_reset();
-      display_show_error("HX711 no response");
+    // --- HX711 error → аварія ---
+    if (loadcell_has_error()) {
+      if (motor_is_running() || auto_is_active() || cur_screen == SCREEN_CALIBRATION) {
+        motor_stop();
+        auto_reset();
+        display_show_error("HX711 error");
+        cur_screen = SCREEN_ERROR;
+      }
     }
 
     // --- Кнопка ZERO кутового датчика ---

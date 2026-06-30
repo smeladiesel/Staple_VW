@@ -29,7 +29,7 @@ bool flash_load(float *scale, int32_t *offset, float *target, float *angle_targe
 {
     const FlashData_t *p = (const FlashData_t *)FLASH_EEPROM_ADDR;
     if (p->magic != 0xAB && p->magic != 0xAC && p->magic != 0xAD) return false;
-    if (!isfinite(p->scale) || p->scale <= 0.0f) return false;
+    if (!isfinite(p->scale) || fabsf(p->scale) <= 0.000001f) return false;
     if (p->offset < (-8388608) || p->offset > 8388607) return false;
     if (!isfinite(p->target_force)) return false;
     if (scale)  *scale  = p->scale;
@@ -83,7 +83,7 @@ bool flash_save(float scale, int32_t offset, float target, float angle_target)
 // ===== Калібровка =====
 
 static CalibStep s_step           = CALIB_STEP_IDLE;
-static float     s_known_kg       = 1.0f;             // маса еталону (вводить оператор)
+static float     s_known_kg       = CALIB_KNOWN_DEFAULT_KG;
 static int32_t   s_raw_tare       = 0;                // сирий відлік при нулі
 static int32_t   s_raw_load       = 0;                // сирий відлік під навантаженням
 static float     s_target_for_save = FORCE_DEFAULT_KG; // задане зусилля для збереження у Flash
@@ -142,13 +142,13 @@ static void update_display(void)
 void calib_init(void)
 {
     s_step     = CALIB_STEP_IDLE;
-    s_known_kg = 1.0f;
+    s_known_kg = CALIB_KNOWN_DEFAULT_KG;
 }
 
 void calib_start(float target_kg)
 {
     s_step           = CALIB_STEP_TARE;
-    s_known_kg       = 1.0f;
+    s_known_kg       = CALIB_KNOWN_DEFAULT_KG;
     s_target_for_save = target_kg;
     display_set_screen(SCREEN_CALIBRATION);
     update_display();
@@ -168,14 +168,23 @@ void calib_confirm(void)
 {
     switch (s_step) {
         case CALIB_STEP_TARE:
-            loadcell_tare();
-            s_raw_tare = loadcell_read_raw();
+            if (loadcell_capture_raw(&s_raw_tare, 8, 2000U)) {
+                loadcell_set_offset(s_raw_tare);
+            } else {
+                display_show_error("HX711 read failed");
+                s_step = CALIB_STEP_DONE;
+                break;
+            }
             s_step = CALIB_STEP_LOAD;
             update_display();
             break;
 
         case CALIB_STEP_LOAD:
-            s_raw_load = loadcell_read_raw();
+            if (!loadcell_capture_raw(&s_raw_load, 8, 2000U)) {
+                display_show_error("HX711 read failed");
+                s_step = CALIB_STEP_DONE;
+                break;
+            }
             s_step = CALIB_STEP_INPUT_MASS;
             update_display();
             break;
@@ -197,9 +206,9 @@ void calib_confirm(void)
 void calib_adjust(int8_t delta)
 {
     if (s_step == CALIB_STEP_INPUT_MASS) {
-        s_known_kg += (float)delta * 0.1f;
-        if (s_known_kg < 0.1f) s_known_kg = 0.1f;
-        if (s_known_kg > 50.0f) s_known_kg = 50.0f;
+        s_known_kg += (float)delta * CALIB_KNOWN_STEP_KG;
+        if (s_known_kg < CALIB_KNOWN_MIN_KG) s_known_kg = CALIB_KNOWN_MIN_KG;
+        if (s_known_kg > CALIB_KNOWN_MAX_KG) s_known_kg = CALIB_KNOWN_MAX_KG;
         update_display();
     }
 }
@@ -213,6 +222,10 @@ void calib_update(void)
                 float new_scale = (float)delta / s_known_kg;
                 loadcell_set_scale(new_scale);
                 loadcell_set_offset(s_raw_tare);
+            } else {
+                display_show_error("CALIB bad delta");
+                s_step = CALIB_STEP_DONE;
+                break;
             }
             s_step = CALIB_STEP_SAVE;
             update_display();

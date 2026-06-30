@@ -7,12 +7,11 @@
 static volatile MotorState  s_state        = MOTOR_IDLE;
 static volatile int32_t     s_step_pos     = 0;      // поточна позиція (кроки)
 
-// Генерація STEP: короткий імпульс HIGH і окремий інтервал між передніми фронтами.
 static volatile uint16_t    s_step_period  = 0;      // тіків між кроками (0 = зупинено)
 static volatile uint16_t    s_step_timer   = 0;      // лічильник до наступного переднього фронту
-static volatile uint16_t    s_pulse_timer  = 0;      // тривалість поточного STEP HIGH у тіках
 static volatile uint16_t    s_burst_steps  = 0;      // залишок кроків у burst mode (0 = без обмеження)
-static volatile bool        s_step_state   = false;  // поточний стан STEP піна
+static volatile uint16_t    s_pulse_timer  = 0;      // тривалість STEP HIGH у тіках
+static volatile bool        s_step_state   = false;
 
 // Прискорення
 static volatile uint16_t    s_period_target = 0;     // цільовий period (мінімальний)
@@ -31,6 +30,12 @@ static const MotorRampProfile s_heavy_profile = {
     .ramp_step   = HEAVY_RAMP_STEP
 };
 
+static const MotorRampProfile s_travel_profile = {
+    .start_speed = TRAVEL_START_SPEED,
+    .ramp_ms     = TRAVEL_RAMP_MS,
+    .ramp_step   = TRAVEL_RAMP_STEP
+};
+
 // ===== Приватні функції =====
 
 // Зупинка при спрацюванні концевика — ISR-safe, встановлює IDLE (рух у протилежний бік дозволений)
@@ -40,6 +45,7 @@ static void motor_limit_stop_isr(void)
     s_state       = MOTOR_IDLE;
     STEP_GPIO_Port->BSRR = (uint32_t)STEP_Pin << 16U;
     s_step_state  = false;
+    s_pulse_timer = 0;
 }
 
 static uint16_t ms_to_ticks(uint16_t ms)
@@ -56,6 +62,7 @@ static uint16_t speed_to_period(uint16_t speed_steps_per_sec)
     uint32_t p = ticks_per_sec / speed_steps_per_sec;
     uint32_t min_period = STEP_PULSE_TICKS + 1U;
     if (p < min_period) p = min_period;
+    if (p < 1U) p = 1U;
     return (uint16_t)p;
 }
 
@@ -114,7 +121,7 @@ static void motor_command(MotorState next_state, bool up, uint16_t speed, const 
         if (s_period_current == 0) {
             s_period_current = motor_start_period(target, profile);
             s_step_period    = s_period_current;
-            s_step_timer     = s_step_period;
+            s_step_timer     = (s_step_period > 0U) ? (s_step_period - 1U) : 0U;
         }
         if (s_accel_timer == 0) {
             s_accel_timer = motor_next_accel_timer(profile);
@@ -123,12 +130,13 @@ static void motor_command(MotorState next_state, bool up, uint16_t speed, const 
         s_period_target  = target;
         s_period_current = motor_start_period(target, profile);
         s_step_period    = s_period_current;
-        s_step_timer     = s_step_period;
+        s_step_timer     = (s_step_period > 0U) ? (s_step_period - 1U) : 0U;
         s_accel_timer    = motor_next_accel_timer(profile);
         s_burst_steps    = 0;
         s_state          = next_state;
         STEP_GPIO_Port->BSRR = (uint32_t)STEP_Pin << 16U;
         s_step_state     = false;
+        s_pulse_timer    = 0;
     }
     __enable_irq();
 }
@@ -148,7 +156,7 @@ static void motor_start_burst(MotorState next_state, bool up, uint16_t speed, ui
     s_period_target  = target;
     s_period_current = motor_start_period(target, profile);
     s_step_period    = s_period_current;
-    s_step_timer     = s_step_period;
+    s_step_timer     = (s_step_period > 0U) ? (s_step_period - 1U) : 0U;
     s_accel_timer    = motor_next_accel_timer(profile);
     s_burst_steps    = steps;
     s_state          = next_state;
@@ -187,22 +195,26 @@ void motor_clear_error(void)
 
 void motor_move_up(uint16_t speed)
 {
-    motor_command(MOTOR_MOVING_UP, true, speed, &s_heavy_profile);
+    const MotorRampProfile *profile = (speed >= SPEED_PROFILE_SWITCH) ? &s_travel_profile : &s_heavy_profile;
+    motor_command(MOTOR_MOVING_UP, true, speed, profile);
 }
 
 void motor_move_down(uint16_t speed)
 {
-    motor_command(MOTOR_MOVING_DOWN, false, speed, &s_heavy_profile);
+    const MotorRampProfile *profile = (speed >= SPEED_PROFILE_SWITCH) ? &s_travel_profile : &s_heavy_profile;
+    motor_command(MOTOR_MOVING_DOWN, false, speed, profile);
 }
 
 void motor_burst_up(uint16_t speed, uint16_t steps)
 {
-    motor_start_burst(MOTOR_MOVING_UP, true, speed, steps, &s_heavy_profile);
+    const MotorRampProfile *profile = (speed >= SPEED_PROFILE_SWITCH) ? &s_travel_profile : &s_heavy_profile;
+    motor_start_burst(MOTOR_MOVING_UP, true, speed, steps, profile);
 }
 
 void motor_burst_down(uint16_t speed, uint16_t steps)
 {
-    motor_start_burst(MOTOR_MOVING_DOWN, false, speed, steps, &s_heavy_profile);
+    const MotorRampProfile *profile = (speed >= SPEED_PROFILE_SWITCH) ? &s_travel_profile : &s_heavy_profile;
+    motor_start_burst(MOTOR_MOVING_DOWN, false, speed, steps, profile);
 }
 
 void motor_nudge_up(uint16_t speed)
@@ -219,7 +231,7 @@ void motor_nudge_up(uint16_t speed)
     s_step_period    = period;
     s_burst_steps    = 0;
     // Не скидаємо s_step_timer якщо вже рухаємось вгору — уникаємо стрибка
-    if (s_state != MOTOR_MOVING_UP) s_step_timer = period;
+    if (s_state != MOTOR_MOVING_UP) s_step_timer = (period > 0U) ? (period - 1U) : 0U;
     s_accel_timer    = 0;
     s_state          = MOTOR_MOVING_UP;
     __enable_irq();
@@ -238,7 +250,7 @@ void motor_nudge_down(uint16_t speed)
     s_period_current = period;
     s_step_period    = period;
     s_burst_steps    = 0;
-    if (s_state != MOTOR_MOVING_DOWN) s_step_timer = period;
+    if (s_state != MOTOR_MOVING_DOWN) s_step_timer = (period > 0U) ? (period - 1U) : 0U;
     s_accel_timer    = 0;
     s_state          = MOTOR_MOVING_DOWN;
     __enable_irq();
@@ -252,8 +264,8 @@ void motor_stop(void)
     // Залишаємо STEP LOW
     HAL_GPIO_WritePin(STEP_GPIO_Port, STEP_Pin, GPIO_PIN_RESET);
     s_step_state = false;
-    s_pulse_timer = 0;
     s_burst_steps = 0;
+    s_pulse_timer = 0;
     __enable_irq();
 }
 
@@ -264,22 +276,22 @@ void motor_emergency_stop(void)
     s_state       = MOTOR_ERROR;
     STEP_GPIO_Port->BSRR = (uint32_t)STEP_Pin << 16U;  // STEP = LOW (атомарно)
     s_step_state = false;
-    s_pulse_timer = 0;
     s_burst_steps = 0;
+    s_pulse_timer = 0;
 }
 
 // Викликати з TIM7 IRQ (кожен TIM7_TICK_US)
 void motor_tim_tick(void)
 {
-    if (s_pulse_timer > 0) {
+    if (s_step_period == 0) return;
+
+    if (s_pulse_timer > 0U) {
         s_pulse_timer--;
         if (s_pulse_timer == 0U) {
-            STEP_GPIO_Port->BSRR = (uint32_t)STEP_Pin << 16U;  // STEP = LOW
+            STEP_GPIO_Port->BSRR = (uint32_t)STEP_Pin << 16U;
             s_step_state = false;
         }
     }
-
-    if (s_step_period == 0) return;
 
     // Перевірка концевиків у ISR — зупиняє з IDLE (рух у протилежний бік дозволений)
     if (s_state == MOTOR_MOVING_UP && motor_is_limit_top()) {
@@ -299,28 +311,25 @@ void motor_tim_tick(void)
         motor_apply_profile_step(&s_heavy_profile);
     }
 
-    // Генерація STEP: передній фронт = один крок, HIGH тримаємо STEP_PULSE_TICKS тікiв.
-    if (s_step_timer > 0) {
+    if (s_step_timer > 0U) {
         s_step_timer--;
-    } else {
-        s_step_timer = s_step_period;
-        if (!s_step_state) {
-            STEP_GPIO_Port->BSRR = STEP_Pin;  // STEP = HIGH
-            s_step_state = true;
-            s_pulse_timer = STEP_PULSE_TICKS;
+    } else if (!s_step_state) {
+        s_step_timer = (s_step_period > 0U) ? (s_step_period - 1U) : 0U;
+        STEP_GPIO_Port->BSRR = STEP_Pin;
+        s_step_state = true;
+        s_pulse_timer = STEP_PULSE_TICKS;
 
-            if (s_state == MOTOR_MOVING_UP) {
-                s_step_pos++;
-            } else if (s_state == MOTOR_MOVING_DOWN) {
-                s_step_pos--;
-            }
+        if (s_state == MOTOR_MOVING_UP) {
+            s_step_pos++;
+        } else if (s_state == MOTOR_MOVING_DOWN) {
+            s_step_pos--;
+        }
 
-            if (s_burst_steps > 0) {
-                s_burst_steps--;
-                if (s_burst_steps == 0U) {
-                    s_step_period = 0;
-                    s_state = MOTOR_IDLE;
-                }
+        if (s_burst_steps > 0U) {
+            s_burst_steps--;
+            if (s_burst_steps == 0U) {
+                s_step_period = 0;
+                s_state = MOTOR_IDLE;
             }
         }
     }

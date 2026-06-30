@@ -18,8 +18,8 @@
  * TIM7 працює з тікoм 100 us.
  * STEP формується коротким імпульсом тривалістю STEP_PULSE_TICKS тікiв.
  */
-#define TIM7_TICK_US        100U
-#define STEP_PULSE_TICKS    1U      // 100 us HIGH, чого достатньо для DM556
+#define TIM7_TICK_US        16U
+#define STEP_PULSE_TICKS    1U
 
 /* ===== Швидкості (кроків/с) =====
  * При TIM7 = 100 us швидкість відповідає заданій набагато точніше.
@@ -31,11 +31,11 @@
  *   SPEED_APPROACH: 5000 steps/s → 1.25 mm/s ≈ 75 mm/min
  *   SPEED_APPROACH_SOFT: 1200 steps/s → 0.30 mm/s ≈ 18 mm/min
  */
-#define SPEED_FAST          5000    // вільний рух / retract, таймерний максимум генератора STEP
+#define SPEED_FAST          7800    // вільний рух / retract (практичний максимум без зриву)
 #define SPEED_PRESS         400     // робочий рух після контакту
 #define SPEED_ENC           200     // енкодер, тонке підналаштування
-#define SPEED_APPROACH      5000    // швидкий підхід до деталі до появи навантаження, таймерний максимум
-#define SPEED_APPROACH_SOFT 1200    // м'який підхід перед контактом
+#define SPEED_APPROACH      7800    // швидкий підхід до деталі до появи навантаження
+#define SPEED_APPROACH_SOFT 4000    // м'який підхід перед контактом
 #define APPROACH_SOFT_KG    5.0f    // після цього порогу скидаємо швидкість до soft approach
 #define APPROACH_CONTACT_KG 10.0f   // поріг контакту: після нього переходимо на SPEED_PRESS
 #define POT_ADC_MIN_ACTIVE  64U     // запас від країв АЦП, щоб крайні положення були стабільні
@@ -52,6 +52,11 @@
 #define HEAVY_RAMP_MS       20      // раз на N мс зменшуємо/збільшуємо period у heavy profile
 #define HEAVY_RAMP_STEP     1       // крок зміни period у heavy profile
 #define ACCEL_STEPS         2000    // кроків/с² (не використовується напряму, залишено для документації)
+
+#define TRAVEL_START_SPEED   1500
+#define TRAVEL_RAMP_MS       5
+#define TRAVEL_RAMP_STEP     2
+#define SPEED_PROFILE_SWITCH 1000
 
 /* ===== Зусилля ===== */
 // Датчик: LCF-6-V 2T (2000 кг = ~19.6 кН)
@@ -89,6 +94,7 @@
 /* ===== HX711 налаштування ===== */
 #define HX711_GAIN_128      1       // Channel A, gain 128 (за замовчуванням)
 #define HX711_TIMEOUT_MS    500     // таймаут очікування готовності
+#define LOADCELL_INVERT_SIGN 1U
 
 /* ===== LCD2004 I2C адреса ===== */
 #define LCD_I2C_ADDR        (0x27 << 1)  // спробувати 0x3F << 1 якщо не працює
@@ -98,5 +104,11 @@
 
 /* ===== Тонка підстройка (ENC hold mode) ===== */
 #define FINE_TIMEOUT_MS     300     // мс без тіків енкодера → зупин мотора
+
+/* ===== Калібровка HX711 ===== */
+#define CALIB_KNOWN_MIN_KG      100.0f
+#define CALIB_KNOWN_MAX_KG      1000.0f
+#define CALIB_KNOWN_DEFAULT_KG  100.0f
+#define CALIB_KNOWN_STEP_KG     1.0f
 
 #endif /* __CONFIG_H */

@@ -74,6 +74,29 @@ static int32_t hx711_read(void)
     return data;
 }
 
+bool loadcell_capture_raw(int32_t *out_raw, uint16_t samples, uint32_t timeout_ms)
+{
+    if (!out_raw || samples == 0U) return false;
+
+    int64_t sum = 0;
+    uint16_t got = 0;
+    uint32_t deadline = HAL_GetTick() + timeout_ms;
+
+    while (got < samples) {
+        if (hx_dat_lo()) {
+            sum += hx711_read();
+            got++;
+            continue;
+        }
+        if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+            return false;
+        }
+    }
+
+    *out_raw = (int32_t)(sum / (int64_t)samples);
+    return true;
+}
+
 // ===== Публічні функції =====
 
 void loadcell_init(void)
@@ -119,9 +142,21 @@ void loadcell_update(void)
     int32_t avg = s_avg_sum / (int32_t)s_avg_count;
 
     if (s_scale != 0.0f) {
-        s_force_kg = (float)(avg - s_offset) / s_scale;
-
+        float force_kg = (float)(avg - s_offset) / s_scale;
         float raw_force_kg = (float)(raw - s_offset) / s_scale;
+        if (LOADCELL_INVERT_SIGN) {
+            force_kg = -force_kg;
+            raw_force_kg = -raw_force_kg;
+        }
+
+        float abs_force = (force_kg < 0.0f) ? -force_kg : force_kg;
+        float abs_raw_force = (raw_force_kg < 0.0f) ? -raw_force_kg : raw_force_kg;
+        float glitch_limit = FORCE_MAX_KG * 2.0f;
+        if (abs_force > glitch_limit || abs_raw_force > glitch_limit) {
+            return;
+        }
+
+        s_force_kg = force_kg;
         if (!s_fast_valid) {
             s_force_fast_kg = raw_force_kg;
             s_fast_valid = true;
